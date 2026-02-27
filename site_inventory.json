@@ -1,0 +1,155 @@
+{
+  "_comment": "site_inventory.json — one file per client. Copy and fill in for each engagement.",
+
+  "client": "ACME Corp",
+  "base_url": "https://acceptance.acmecorp.com",
+
+  "user_agent": "AnalyticsQA-Explorer/2.0 (Playwright; Internal QA)",
+
+  "_comment_datalayer": "Configure whichever datalayer variable the client uses.",
+  "datalayer": {
+    "variable": "utag_data",
+    "fallback_variables": ["digitalData", "dataLayer[0]"],
+    "extract_path": null
+  },
+
+  "_comment_beacons": "Regex patterns to match network requests worth capturing. Per-client.",
+  "beacon_patterns": [
+    ".*\\.omtrdc\\.net.*",
+    ".*\\.demdex\\.net.*",
+    ".*\\.2o7\\.net.*",
+    ".*\\.google-analytics\\.com.*",
+    ".*\\.analytics\\.google\\.com.*",
+    ".*gtm\\.js.*",
+    ".*collect\\?v=.*",
+    ".*metrics\\.acmecorp\\.com.*"
+  ],
+
+  "_comment_preflight": "Pre-flight steps run once before any journeys. Use for consent banners, login, MFA.",
+  "pre_flight": {
+    "steps": [
+      {
+        "action": "navigate",
+        "url": "/",
+        "label": "Open homepage"
+      },
+      {
+        "action": "click",
+        "selector": "#cookie-consent-accept",
+        "label": "Accept cookie consent",
+        "timeout_ms": 5000,
+        "wait_ms": 500
+      },
+      {
+        "action": "navigate",
+        "url": "/login",
+        "label": "Navigate to login"
+      },
+      {
+        "action": "fill_form",
+        "label": "Fill login credentials",
+        "fields": {
+          "#username": "qa-tester@acmecorp.com",
+          "#password": "Test1234!"
+        },
+        "then_click": "#login-submit",
+        "wait_ms": 2000
+      },
+      {
+        "_comment": "Remove this step if no MFA. Requires --headed flag when running.",
+        "action": "mfa_wait",
+        "label": "MFA check",
+        "message": "Complete the MFA step in the browser window, then press ENTER here to continue."
+      }
+    ]
+  },
+
+  "_comment_journeys": "Each journey is a named sequence of steps. Add as many journeys as needed.",
+  "journeys": [
+    {
+      "name": "Homepage",
+      "type": "standard",
+      "steps": [
+        {
+          "action": "navigate",
+          "url": "/",
+          "snapshot_label": "homepage_load",
+          "wait_ms": 2000
+        }
+      ]
+    },
+    {
+      "name": "Appointment Booking Funnel",
+      "type": "spa",
+      "steps": [
+        {
+          "action": "navigate",
+          "url": "/booking",
+          "snapshot_label": "booking_start",
+          "wait_ms": 1500
+        },
+        {
+          "action": "click",
+          "selector": "[data-testid='service-option-general']",
+          "snapshot_label": "booking_service_selected",
+          "wait_ms": 1000
+        },
+        {
+          "action": "click",
+          "selector": "[data-testid='date-picker-first-available']",
+          "snapshot_label": "booking_date_selected",
+          "wait_ms": 1000
+        },
+        {
+          "action": "fill_form",
+          "label": "Fill patient details",
+          "fields": {
+            "#first-name": "QA",
+            "#last-name": "Tester",
+            "#email": "qa@acmecorp.com",
+            "#phone": "0612345678"
+          },
+          "then_click": "#booking-confirm",
+          "snapshot_label": "booking_confirmed",
+          "wait_ms": 3000
+        }
+      ]
+    },
+    {
+      "name": "Product Purchase Funnel",
+      "type": "spa",
+      "steps": [
+        {
+          "action": "navigate",
+          "url": "/shop",
+          "snapshot_label": "shop_listing",
+          "wait_ms": 2000
+        },
+        {
+          "action": "click",
+          "selector": "[data-testid='product-card']:first-child",
+          "snapshot_label": "product_detail",
+          "wait_ms": 1500
+        },
+        {
+          "action": "click",
+          "selector": "[data-testid='add-to-cart']",
+          "snapshot_label": "add_to_cart",
+          "wait_ms": 1000
+        },
+        {
+          "action": "navigate",
+          "url": "/cart",
+          "snapshot_label": "cart_view",
+          "wait_ms": 1500
+        },
+        {
+          "action": "click",
+          "selector": "[data-testid='proceed-to-checkout']",
+          "snapshot_label": "checkout_start",
+          "wait_ms": 2000
+        }
+      ]
+    }
+  ]
+}
