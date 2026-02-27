@@ -18,8 +18,10 @@ Requirements:
 """
 
 import argparse
+import copy
 import json
 import os
+import random
 import re
 import sys
 from datetime import datetime, timezone
@@ -224,6 +226,28 @@ def _execute_action(page, step: dict, base_url: str):
     elif action == "hover":
         page.hover(step["selector"], timeout=timeout)
 
+    elif action == "click_random":
+        # Find all matching elements and click one at random
+        elements = page.locator(step["selector"]).all()
+        if not elements:
+            raise Exception(f"click_random: no elements found for selector '{step['selector']}'")
+        chosen = random.choice(elements)
+        chosen.scroll_into_view_if_needed()
+        chosen.click(timeout=timeout)
+
+    elif action == "click_match":
+        # Click the element whose visible text matches match_text (case-insensitive)
+        match_text = step.get("match_text", "")
+        elements   = page.locator(step["selector"]).all()
+        matched    = [el for el in elements if match_text.lower() in (el.inner_text() or "").lower()]
+        if not matched:
+            raise Exception(
+                f"click_match: no element matching '{match_text}' "
+                f"found within selector '{step['selector']}'"
+            )
+        matched[0].scroll_into_view_if_needed()
+        matched[0].click(timeout=timeout)
+
     else:
         print(f"       ⚠️  Unknown action '{action}' — skipping.")
 
@@ -231,6 +255,84 @@ def _execute_action(page, step: dict, base_url: str):
     post_wait = step.get("wait_ms", 0)
     if post_wait:
         page.wait_for_timeout(post_wait)
+
+
+# ---------------------------------------------------------------------------
+# FOREACH — journey expansion
+# ---------------------------------------------------------------------------
+
+def expand_journeys(journeys: list) -> list:
+    """
+    Expand any journey that has a 'foreach' block into N copies,
+    one per value in foreach.values.
+
+    foreach config:
+        "foreach": {
+            "variable": "plp",
+            "values": [
+                {"label": "Women", "url": "/shop/women"},
+                {"label": "Men",   "url": "/shop/men"}
+            ]
+        }
+
+    Each value can be a plain string or a dict of named variables.
+    Supports {{variable}} placeholder substitution in:
+        - step.url
+        - step.snapshot_label
+        - step.value
+        - step.fields values
+        - step.match_text
+        - journey.name
+    """
+    expanded = []
+    for journey in journeys:
+        foreach = journey.get("foreach")
+        if not foreach:
+            expanded.append(journey)
+            continue
+
+        var_name = foreach["variable"]
+        values   = foreach["values"]
+
+        for val in values:
+            # Build substitution context
+            if isinstance(val, dict):
+                context = val
+                iteration_label = val.get("label", str(val))
+            else:
+                context = {var_name: val}
+                iteration_label = str(val)
+
+            # Deep-copy the journey and substitute placeholders
+            j = copy.deepcopy(journey)
+            j["name"] = _interpolate(j["name"], context) + f" [{iteration_label}]"
+            j["_foreach_context"] = context
+            j.pop("foreach", None)
+
+            for step in j.get("steps", []):
+                _interpolate_step(step, context)
+
+            expanded.append(j)
+
+    return expanded
+
+
+def _interpolate(text: str, context: dict) -> str:
+    """Replace {{key}} placeholders in a string."""
+    if not isinstance(text, str):
+        return text
+    for key, val in context.items():
+        text = text.replace(f"{{{{{key}}}}}", str(val))
+    return text
+
+
+def _interpolate_step(step: dict, context: dict):
+    """In-place placeholder substitution for all relevant step fields."""
+    for field in ("url", "snapshot_label", "value", "match_text", "selector", "label"):
+        if field in step:
+            step[field] = _interpolate(step[field], context)
+    if "fields" in step:
+        step["fields"] = {k: _interpolate(str(v), context) for k, v in step["fields"].items()}
 
 
 # ---------------------------------------------------------------------------
@@ -243,10 +345,11 @@ def run_journey(page, journey: dict, base_url: str, beacon_patterns: list,
     Run all steps in a journey.
     Returns (datalayer_snapshots, network_request_records).
     """
-    journey_name = journey.get("name", "unnamed")
-    journey_type = journey.get("type", "standard")
-    dl_snapshots = []
-    net_records  = []
+    journey_name    = journey.get("name", "unnamed")
+    journey_type    = journey.get("type", "standard")
+    foreach_context = journey.get("_foreach_context", {})
+    dl_snapshots    = []
+    net_records     = []
 
     for i, step in enumerate(journey.get("steps", [])):
         label = step.get("snapshot_label", f"step_{i}")
@@ -269,14 +372,15 @@ def run_journey(page, journey: dict, base_url: str, beacon_patterns: list,
 
         # --- Datalayer snapshot ---
         dl_snapshot = {
-            "journey":      journey_name,
-            "journey_type": journey_type,
-            "step_index":   i,
-            "step_label":   label,
-            "action":       step.get("action"),
-            "url":          page.url,
-            "timestamp":    datetime.now(timezone.utc).isoformat(),
-            "datalayer":    capture_datalayer(page, datalayer_cfg),
+            "journey":          journey_name,
+            "journey_type":     journey_type,
+            "foreach_context":  foreach_context,
+            "step_index":       i,
+            "step_label":       label,
+            "action":           step.get("action"),
+            "url":              page.url,
+            "timestamp":        datetime.now(timezone.utc).isoformat(),
+            "datalayer":        capture_datalayer(page, datalayer_cfg),
         }
         if error:
             dl_snapshot["_error"] = error
@@ -285,12 +389,13 @@ def run_journey(page, journey: dict, base_url: str, beacon_patterns: list,
         # --- Network beacon records ---
         for beacon in step_beacons:
             net_records.append({
-                "journey":      journey_name,
-                "journey_type": journey_type,
-                "step_index":   i,
-                "step_label":   label,
-                "action":       step.get("action"),
-                "timestamp":    datetime.now(timezone.utc).isoformat(),
+                "journey":         journey_name,
+                "journey_type":    journey_type,
+                "foreach_context": foreach_context,
+                "step_index":      i,
+                "step_label":      label,
+                "action":          step.get("action"),
+                "timestamp":       datetime.now(timezone.utc).isoformat(),
                 **beacon,
             })
 
@@ -344,9 +449,11 @@ def main():
     client       = cfg["client"]
     base_url     = cfg["base_url"].rstrip("/")
     datalayer    = cfg["datalayer"]
-    journeys     = cfg["journeys"]
     pre_flight   = cfg.get("pre_flight", {})
     beacon_pats  = compile_beacon_patterns(cfg["beacon_patterns"])
+
+    # Expand foreach journeys into individual runs
+    journeys = expand_journeys(cfg["journeys"])
 
     run_id   = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     run_meta = {
@@ -367,28 +474,46 @@ def main():
     print(f"   Client  : {client}")
     print(f"   Base URL: {base_url}")
     print(f"   Run ID  : {run_id}")
-    print(f"   Journeys: {len(journeys)}")
+    print(f"   Journeys: {len(journeys)} (after foreach expansion)")
     print()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=headless)
-        context = browser.new_context(
-            viewport={"width": 1920, "height": 1080},
-            user_agent=cfg.get(
-                "user_agent",
-                "AnalyticsQA-Explorer/2.0 (Playwright; Headless; Internal QA)"
-            ),
-        )
-        page = context.new_page()
 
-        # --- Pre-flight (consent banners, login, MFA) ---
+        def make_context():
+            return browser.new_context(
+                viewport={"width": 1920, "height": 1080},
+                user_agent=cfg.get(
+                    "user_agent",
+                    "AnalyticsQA-Explorer/2.0 (Playwright; Headless; Internal QA)"
+                ),
+            )
+
+        # --- Initial context + pre-flight ---
+        context = make_context()
+        page    = context.new_page()
+
         if pre_flight.get("steps"):
             run_pre_flight(page, pre_flight, base_url)
             print()
 
         # --- Run journeys ---
         for journey in journeys:
-            print(f"🧭  Journey: {journey['name']}  ({len(journey.get('steps', []))} steps)")
+            reset = journey.get("reset_before_run", False)
+
+            # Fresh browser context = clean cookies, storage, cart state
+            if reset:
+                print(f"  🔄  reset_before_run — opening fresh browser context...")
+                context.close()
+                context = make_context()
+                page    = context.new_page()
+                # Re-run pre-flight in the new context (login, consent, etc.)
+                if pre_flight.get("steps"):
+                    run_pre_flight(page, pre_flight, base_url)
+                    print()
+
+            steps_count = len(journey.get("steps", []))
+            print(f"🧭  Journey: {journey['name']}  ({steps_count} steps)")
             dl_snaps, net_recs = run_journey(
                 page, journey, base_url, beacon_pats, datalayer
             )
