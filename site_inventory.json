@@ -1,17 +1,19 @@
 {
   "_comment": "site_inventory.json — one file per client. Copy and fill in for each engagement.",
 
-  "client": "ACME Corp",
-  "base_url": "https://acceptance.acmecorp.com",
+  "client": "EssilorLuxottica",
+  "base_url": "https://nl-pearle-acceptance.grandvision.io",
 
   "user_agent": "AnalyticsQA-Explorer/2.0 (Playwright; Internal QA)",
 
+  "_comment_datalayer": "Configure whichever datalayer variable the client uses.",
   "datalayer": {
     "variable": "utag_data",
     "fallback_variables": ["digitalData", "dataLayer[0]"],
     "extract_path": null
   },
 
+  "_comment_beacons": "Regex patterns to match network requests worth capturing. Per-client.",
   "beacon_patterns": [
     ".*\\.omtrdc\\.net.*",
     ".*\\.demdex\\.net.*",
@@ -23,6 +25,7 @@
     ".*metrics\\.acmecorp\\.com.*"
   ],
 
+  "_comment_preflight": "Pre-flight steps run once before any journeys. Use for consent banners, login, MFA.",
   "pre_flight": {
     "steps": [
       {
@@ -53,7 +56,7 @@
         "wait_ms": 2000
       },
       {
-        "_comment": "Remove this step if no MFA. Requires --headed flag.",
+        "_comment": "Remove this step if no MFA. Requires --headed flag when running.",
         "action": "mfa_wait",
         "label": "MFA check",
         "message": "Complete the MFA step in the browser window, then press ENTER here to continue."
@@ -61,153 +64,9 @@
     ]
   },
 
+  "_comment_journeys": "Each journey is a named sequence of steps. Add as many journeys as needed.",
   "journeys": [
-
     {
-      "_comment": "Loops over every PLP, clicks a random product, and completes a credit card checkout.",
-      "name": "PLP → PDP → Checkout",
-      "type": "spa",
-      "reset_before_run": true,
-
-      "foreach": {
-        "variable": "plp",
-        "values": [
-          { "label": "Women",       "url": "/shop/women",       "category": "women" },
-          { "label": "Men",         "url": "/shop/men",         "category": "men" },
-          { "label": "Sale",        "url": "/shop/sale",        "category": "sale" },
-          { "label": "Accessories", "url": "/shop/accessories", "category": "accessories" }
-        ]
-      },
-
-      "steps": [
-
-        {
-          "_comment": "Navigate to the PLP for this iteration.",
-          "action": "navigate",
-          "url": "{{url}}",
-          "snapshot_label": "plp_{{label}}",
-          "wait_ms": 2000
-        },
-
-        {
-          "_comment": "Click a random product card on the PLP.",
-          "action": "click_random",
-          "selector": "[data-testid='product-card']",
-          "snapshot_label": "pdp_{{label}}",
-          "wait_ms": 2000
-        },
-
-        {
-          "action": "click",
-          "selector": "[data-testid='add-to-cart']",
-          "snapshot_label": "add_to_cart_{{label}}",
-          "wait_ms": 1500
-        },
-
-        {
-          "action": "navigate",
-          "url": "/cart",
-          "snapshot_label": "cart_{{label}}",
-          "wait_ms": 1500
-        },
-
-        {
-          "action": "click",
-          "selector": "[data-testid='proceed-to-checkout']",
-          "snapshot_label": "checkout_start_{{label}}",
-          "wait_ms": 2000
-        },
-
-        {
-          "_comment": "Select credit card as payment method.",
-          "action": "click_match",
-          "selector": "[data-testid='payment-option']",
-          "match_text": "Credit Card",
-          "snapshot_label": "payment_selected_{{label}}",
-          "wait_ms": 1000
-        },
-
-        {
-          "_comment": "Fill in credit card details.",
-          "action": "fill_form",
-          "label": "Enter card details",
-          "fields": {
-            "#card-number":   "4111111111111111",
-            "#card-expiry":   "12/26",
-            "#card-cvc":      "123",
-            "#card-name":     "QA Tester"
-          },
-          "snapshot_label": "payment_details_filled_{{label}}",
-          "wait_ms": 500
-        },
-
-        {
-          "action": "click",
-          "selector": "[data-testid='place-order']",
-          "snapshot_label": "order_placed_{{label}}",
-          "wait_ms": 4000
-        },
-
-        {
-          "_comment": "Wait for the confirmation page to fully load.",
-          "action": "wait_for",
-          "selector": "[data-testid='order-confirmation']",
-          "snapshot_label": "order_confirmed_{{label}}",
-          "timeout_ms": 15000
-        }
-
-      ]
-    },
-
-    {
-      "_comment": "Appointment booking funnel — single run, no foreach needed.",
-      "name": "Appointment Booking Funnel",
-      "type": "spa",
-      "reset_before_run": false,
-      "steps": [
-        {
-          "action": "navigate",
-          "url": "/booking",
-          "snapshot_label": "booking_start",
-          "wait_ms": 1500
-        },
-        {
-          "action": "click",
-          "selector": "[data-testid='service-option-general']",
-          "snapshot_label": "booking_service_selected",
-          "wait_ms": 1000
-        },
-        {
-          "action": "click",
-          "selector": "[data-testid='date-picker-first-available']",
-          "snapshot_label": "booking_date_selected",
-          "wait_ms": 1000
-        },
-        {
-          "action": "fill_form",
-          "label": "Fill patient details",
-          "fields": {
-            "#first-name": "QA",
-            "#last-name":  "Tester",
-            "#email":      "qa@acmecorp.com",
-            "#phone":      "0612345678"
-          },
-          "then_click": "#booking-confirm",
-          "snapshot_label": "booking_confirmed",
-          "wait_ms": 3000
-        },
-        {
-          "_comment": "Wait for the confirmation screen to appear.",
-          "action": "wait_for",
-          "selector": "[data-testid='booking-confirmation']",
-          "snapshot_label": "booking_confirmation_shown",
-          "timeout_ms": 15000
-        }
-      ]
-    },
-
-    {
-      "_comment": "Simple homepage check — no foreach, no reset needed.",
       "name": "Homepage",
       "type": "standard",
       "steps": [
@@ -218,7 +77,42 @@
           "wait_ms": 2000
         }
       ]
+    },
+    {
+      "name": "Product Purchase Funnel",
+      "type": "spa",
+      "steps": [
+        {
+          "action": "navigate",
+          "url": "/zonnebrillen/heren",
+          "snapshot_label": "shop_listing",
+          "wait_ms": 2000
+        },
+        {
+          "action": "click",
+          "selector": ".product-block-heading",
+          "snapshot_label": "product_detail",
+          "wait_ms": 1500
+        },
+        {
+          "action": "click",
+          "selector": "[data-element-id='Prod_AddCart']",
+          "snapshot_label": "add_to_cart",
+          "wait_ms": 1000
+        },
+        {
+          "action": "click",
+          "selector": "[aria-label='Ga naar winkelmand']",
+          "snapshot_label": "cart_view",
+          "wait_ms": 1500
+        },
+        {
+          "action": "click",
+          "selector": "[data-element-id='Summary_Checkout']",
+          "snapshot_label": "checkout_start",
+          "wait_ms": 2000
+        }
+      ]
     }
-
   ]
 }
